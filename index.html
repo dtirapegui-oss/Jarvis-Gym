@@ -1,1 +1,776 @@
-<h1>Jarvis gym funcionando</h1>
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Jarvis Gym</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!--
+  Registro del gym de Jarvis (Mini App de Telegram).
+  El bot abre esta pagina con la sesion que toca en ?d= (JSON en base64url).
+  Al terminar, la sesion vuelve al bot con Telegram.WebApp.sendData.
+  El repo es publico: aqui no hay tokens ni datos guardados. El progreso a
+  medio hacer vive en el CloudStorage de Telegram de la cuenta de Diego.
+-->
+<style>
+  :root {
+    --fondo: #0f1216;
+    --tarjeta: #1a1f26;
+    --borde: #2a313b;
+    --texto: #eef2f6;
+    --tenue: #8b96a5;
+    --acento: #3aa0ff;
+    --acento-texto: #ffffff;
+    --bien: #3ecf8e;
+    --ojo: #ffb547;
+    --mal: #ff5d5d;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--fondo); color: var(--texto); }
+  html, body { overflow-x: hidden; }
+  body {
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh; padding: 12px 14px calc(24px + env(safe-area-inset-bottom));
+    user-select: none; -webkit-user-select: none;
+  }
+  button {
+    font: inherit; color: inherit; border: 0; border-radius: 14px; cursor: pointer;
+    background: var(--tarjeta); min-height: 52px; padding: 0 16px;
+  }
+  button:active { transform: scale(.98); opacity: .85; }
+  button:disabled { opacity: .4; }
+  .grande { width: 100%; min-height: 64px; font-size: 20px; font-weight: 700;
+            background: var(--acento); color: var(--acento-texto); }
+  .sec { background: var(--tarjeta); border: 1px solid var(--borde); }
+  .peligro { color: var(--mal); }
+  .tenue { color: var(--tenue); }
+  .chico { font-size: 13px; }
+  .oculto { display: none !important; }
+  h1 { font-size: 24px; margin: 6px 0 2px; }
+  h2 { font-size: 20px; margin: 0 0 4px; }
+  .tarjeta { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 16px;
+             padding: 14px; margin: 12px 0; }
+  .fila { display: flex; gap: 10px; align-items: center; }
+  .fila > * { flex: 1; }
+  .lista-plan { list-style: none; padding: 0; margin: 0; }
+  .lista-plan li { padding: 10px 0; border-bottom: 1px solid var(--borde); overflow-wrap: anywhere; }
+  .lista-plan li > span { display: block; }
+  .lista-plan li > span + span { font-size: 14px; margin-top: 2px; }
+  .lista-plan li:last-child { border-bottom: 0; }
+  .sube { color: var(--bien); font-weight: 600; }
+  /* entrenamiento */
+  .barra { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .reloj { font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 700; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 10px 0 4px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; min-height: 40px; padding: 0 12px; border-radius: 20px; font-size: 14px;
+          border: 1px solid var(--borde); }
+  .chip.actual { background: var(--acento); color: var(--acento-texto); border-color: var(--acento); }
+  .chip.listo { border-color: var(--bien); }
+  .chip.saltado { opacity: .45; text-decoration: line-through; }
+  .guia { margin: 8px 0 0; font-size: 14px; }
+  .meta { margin-top: 6px; font-size: 15px; font-weight: 600; }
+  .series { list-style: none; padding: 0; margin: 10px 0 0; }
+  .series li { display: flex; align-items: center; justify-content: space-between; min-height: 48px;
+               padding: 0 12px; margin: 6px 0; border-radius: 12px; background: var(--fondo);
+               font-variant-numeric: tabular-nums; font-size: 17px; }
+  .series li.editando { outline: 2px solid var(--ojo); }
+  .series .n { color: var(--tenue); width: 28px; }
+  .series .v { flex: 1; font-weight: 600; }
+  .paso { display: grid; grid-template-columns: 64px 1fr 64px; gap: 8px; align-items: center; }
+  .paso button { min-height: 64px; font-size: 30px; font-weight: 700; }
+  .paso input { width: 100%; min-height: 64px; text-align: center; font-family: inherit; font-size: 28px; font-weight: 700;
+                font-variant-numeric: tabular-nums; color: var(--texto); background: var(--fondo);
+                border: 1px solid var(--borde); border-radius: 14px; user-select: text; -webkit-user-select: text; }
+  .etiqueta { font-size: 13px; color: var(--tenue); margin: 10px 0 4px; }
+  .acciones { display: flex; gap: 8px; margin-top: 10px; }
+  .acciones button { flex: 1; font-size: 15px; }
+  /* descanso */
+  #descanso { position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom));
+              background: var(--tarjeta); border: 2px solid var(--acento); border-radius: 18px;
+              padding: 12px 14px; box-shadow: 0 8px 30px rgba(0,0,0,.5); z-index: 5; }
+  #descanso.fin { border-color: var(--bien); }
+  #descanso .tiempo { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  body.con-descanso { padding-bottom: 150px; }
+  /* resumen y modales */
+  .cifras { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .cifra { background: var(--fondo); border-radius: 12px; padding: 10px; }
+  .cifra b { display: block; font-size: 22px; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; z-index: 10; }
+  .modal .tarjeta { width: 100%; margin: 0; border-radius: 18px 18px 0 0;
+                    padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+  .modal input[type=text] { width: 100%; min-height: 52px; font: inherit; color: var(--texto);
+                            background: var(--fondo); border: 1px solid var(--borde); border-radius: 12px;
+                            padding: 0 12px; user-select: text; -webkit-user-select: text; }
+  .opciones { display: flex; gap: 8px; }
+  .opciones button { flex: 1; }
+  .opciones button.sel { background: var(--acento); color: var(--acento-texto); }
+  .aviso { text-align: center; padding-top: 25vh; }
+  .aviso .icono { font-size: 56px; }
+</style>
+</head>
+<body>
+
+<!-- fuera de Telegram / sin datos -->
+<section id="p-aviso" class="aviso oculto">
+  <div class="icono">🏋️</div>
+  <h1 id="aviso-titulo">Ábrame desde Telegram</h1>
+  <p class="tenue" id="aviso-texto">Esta app es el registro del gym de Jarvis. Escríbale "/gym" al bot y use el botón que aparece abajo del chat.</p>
+</section>
+
+<!-- inicio -->
+<section id="p-inicio" class="oculto">
+  <div class="tenue chico" id="ini-semana"></div>
+  <h1 id="ini-nombre"></h1>
+  <div class="tenue" id="ini-reserva"></div>
+  <div class="tarjeta"><ul class="lista-plan" id="ini-lista"></ul></div>
+  <button class="grande" id="b-comenzar">Comenzar</button>
+</section>
+
+<!-- entrenamiento -->
+<section id="p-entreno" class="oculto">
+  <div class="barra">
+    <div>
+      <div class="chico tenue" id="ent-sesion"></div>
+      <div class="reloj" id="ent-reloj">0:00</div>
+    </div>
+    <button class="sec" id="b-terminar" style="flex:none">Terminar</button>
+  </div>
+  <div class="chips" id="ent-chips"></div>
+
+  <div class="tarjeta">
+    <div class="chico tenue" id="ej-pos"></div>
+    <h2 id="ej-nombre"></h2>
+    <div class="tenue chico" id="ej-plan"></div>
+    <div class="guia tenue" id="ej-ultima"></div>
+    <div class="meta" id="ej-meta"></div>
+    <ul class="series" id="ej-series"></ul>
+
+    <div class="etiqueta">Kilos</div>
+    <div class="paso">
+      <button class="sec" data-paso="kg" data-dir="-1">−</button>
+      <input id="in-kg" inputmode="decimal" autocomplete="off">
+      <button class="sec" data-paso="kg" data-dir="1">+</button>
+    </div>
+    <div class="etiqueta">Reps</div>
+    <div class="paso">
+      <button class="sec" data-paso="rp" data-dir="-1">−</button>
+      <input id="in-rp" inputmode="numeric" autocomplete="off">
+      <button class="sec" data-paso="rp" data-dir="1">+</button>
+    </div>
+
+    <div style="margin-top:14px">
+      <button class="grande" id="b-marcar">Marcar serie</button>
+    </div>
+    <div class="acciones oculto" id="edicion">
+      <button class="sec peligro" id="b-borrar-serie">Borrar serie</button>
+      <button class="sec" id="b-cancelar-edicion">Cancelar</button>
+    </div>
+  </div>
+
+  <div class="acciones">
+    <button class="sec" id="b-anterior">← Anterior</button>
+    <button class="sec" id="b-siguiente">Siguiente →</button>
+  </div>
+  <div class="acciones">
+    <button class="sec" id="b-saltar">Saltar ejercicio</button>
+    <button class="sec" id="b-agregar">+ Agregar ejercicio</button>
+  </div>
+</section>
+
+<!-- terminar -->
+<section id="p-fin" class="oculto">
+  <h1>¿Terminar el entrenamiento?</h1>
+  <div class="tenue" id="fin-sesion"></div>
+  <div class="tarjeta cifras">
+    <div class="cifra"><span class="tenue chico">Duración</span><b id="fin-dur"></b></div>
+    <div class="cifra"><span class="tenue chico">Series</span><b id="fin-series"></b></div>
+    <div class="cifra"><span class="tenue chico">Ejercicios</span><b id="fin-ej"></b></div>
+    <div class="cifra"><span class="tenue chico">Volumen</span><b id="fin-vol"></b></div>
+  </div>
+  <div class="tenue chico" id="fin-faltan"></div>
+  <div style="margin-top:14px"><button class="grande" id="b-enviar">Enviar a Jarvis</button></div>
+  <div class="acciones"><button class="sec" id="b-volver">Seguir entrenando</button></div>
+  <div class="acciones"><button class="sec peligro" id="b-descartar">Descartar entrenamiento</button></div>
+  <pre id="fin-demo" class="chico tenue oculto" style="white-space:pre-wrap;word-break:break-all"></pre>
+</section>
+
+<!-- descanso -->
+<div id="descanso" class="oculto">
+  <div class="barra">
+    <div>
+      <div class="chico tenue" id="des-titulo">Descanso</div>
+      <div class="tiempo" id="des-tiempo">0:00</div>
+    </div>
+    <div style="display:flex;gap:8px;flex:none">
+      <button class="sec" id="b-des-mas">+15 s</button>
+      <button class="sec" id="b-des-fin">Listo</button>
+    </div>
+  </div>
+</div>
+
+<!-- agregar ejercicio -->
+<div class="modal oculto" id="m-agregar">
+  <div class="tarjeta">
+    <h2>Ejercicio fuera del plan</h2>
+    <div class="etiqueta">Nombre</div>
+    <input type="text" id="ag-nombre" maxlength="40" placeholder="Ej.: Curl araña" autocomplete="off">
+    <div class="etiqueta">Descanso</div>
+    <div class="opciones" id="ag-descanso">
+      <button data-v="60">1:00</button><button data-v="90" class="sel">1:30</button><button data-v="120">2:00</button>
+    </div>
+    <div class="etiqueta">Los kilos suben de a</div>
+    <div class="opciones" id="ag-paso">
+      <button data-v="2.5" class="sel">2,5 kg</button><button data-v="2">2 kg</button><button data-v="1">1 kg</button>
+    </div>
+    <div class="acciones">
+      <button class="sec" id="b-ag-cancelar">Cancelar</button>
+      <button class="grande" id="b-ag-ok" style="min-height:52px;font-size:17px">Agregar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var CLAVE_ESTADO = "gym_estado", CLAVE_PLAN = "gym_plan";
+  var VIGENCIA_MS = 12 * 3600 * 1000;     // un entrenamiento a medias mas viejo se descarta
+  var LIMITE_BYTES = 4096;                 // tope de sendData
+
+  var tg = window.Telegram && window.Telegram.WebApp;
+  var params = new URLSearchParams(location.search);
+  var demo = params.get("demo") === "1";
+  var enTelegram = !!(tg && tg.platform && tg.platform !== "unknown");
+
+  var plan = null, planCrudo = "", st = null;
+  var editando = -1;                        // indice de la serie que se corrige
+  var descanso = { hasta: 0, avisado: false };
+
+  // ---------- utilidades ----------
+  function $(id) { return document.getElementById(id); }
+  function el(tag, clase, texto) {
+    var e = document.createElement(tag);
+    if (clase) e.className = clase;
+    if (texto != null) e.textContent = texto;
+    return e;
+  }
+  function kg(x) {
+    var r = Math.round(x * 100) / 100;
+    return String(r).replace(".", ",");
+  }
+  function mmss(seg) {
+    seg = Math.max(0, Math.round(seg));
+    var h = Math.floor(seg / 3600), m = Math.floor(seg % 3600 / 60), s = seg % 60;
+    var ss = (s < 10 ? "0" : "") + s;
+    return h ? h + ":" + (m < 10 ? "0" : "") + m + ":" + ss : m + ":" + ss;
+  }
+  function rango(lo, hi) {
+    if (lo == null) return "al máximo";
+    return lo === hi ? String(lo) : lo + "–" + hi;
+  }
+  function vibrar(tipo) {
+    try {
+      if (enTelegram && tg.HapticFeedback) {
+        if (tipo === "fin") tg.HapticFeedback.notificationOccurred("success");
+        else tg.HapticFeedback.impactOccurred(tipo || "light");
+        return;
+      }
+    } catch (e) {}
+    if (tipo === "fin" && navigator.vibrate) navigator.vibrate([250, 120, 250, 120, 400]);
+  }
+  function desdeB64(b) {
+    b = b.replace(/-/g, "+").replace(/_/g, "/");
+    while (b.length % 4) b += "=";
+    var bin = atob(b), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+  function idNuevo() {
+    var a = new Uint8Array(9);
+    (window.crypto || window.msCrypto).getRandomValues(a);
+    var t = Date.now().toString(36);
+    return t + "-" + Array.prototype.map.call(a, function (x) { return (x % 36).toString(36); }).join("");
+  }
+  function mostrar(id) {
+    ["p-aviso", "p-inicio", "p-entreno", "p-fin"].forEach(function (p) {
+      $(p).classList.toggle("oculto", p !== id);
+    });
+    window.scrollTo(0, 0);
+  }
+  function alerta(texto) {
+    if (enTelegram && tg.showAlert) tg.showAlert(texto); else window.alert(texto);
+  }
+  function confirmar(texto, si) {
+    if (enTelegram && tg.showConfirm) tg.showConfirm(texto, function (ok) { if (ok) si(); });
+    else if (window.confirm(texto)) si();
+  }
+
+  // ---------- almacenamiento: CloudStorage de Telegram (o localStorage en demo) ----------
+  var nube = enTelegram && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9");
+  var almacen = {
+    leer: function (claves, cb) {
+      if (nube) {
+        tg.CloudStorage.getItems(claves, function (err, vals) { cb(err ? {} : (vals || {})); });
+      } else {
+        var r = {};
+        claves.forEach(function (k) { try { r[k] = localStorage.getItem(k) || ""; } catch (e) { r[k] = ""; } });
+        cb(r);
+      }
+    },
+    poner: function (k, v) {
+      if (nube) tg.CloudStorage.setItem(k, v, function () {});
+      else { try { localStorage.setItem(k, v); } catch (e) {} }
+    },
+    borrar: function (claves, cb) {
+      if (nube) tg.CloudStorage.removeItems(claves, function () { if (cb) cb(); });
+      else { claves.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} }); if (cb) cb(); }
+    }
+  };
+  function guardar() {
+    if (st) almacen.poner(CLAVE_ESTADO, JSON.stringify(st));
+  }
+
+  // ---------- el plan ----------
+  // cada ejercicio del plan: [id, nombre, series, lo, hi, descanso, paso, kg, reps, ultimas, subir]
+  function leerPlan(crudo) {
+    var d = JSON.parse(desdeB64(crudo));
+    if (!d || d.v !== 1 || !Array.isArray(d.e)) throw new Error("plan");
+    return d;
+  }
+  function metaPlan(id) {
+    for (var i = 0; i < plan.e.length; i++) if (plan.e[i][0] === id) return plan.e[i];
+    return null;
+  }
+  // lo que la pantalla necesita de un ejercicio, sea del plan o agregado
+  function info(ej) {
+    if (ej.x) return { nombre: ej.n, series: 0, lo: null, hi: null, desc: ej.d, paso: ej.p,
+                       kg: null, rp: null, ultimas: [], subir: 0, extra: true };
+    var m = metaPlan(ej.i);
+    return { nombre: m[1], series: m[2], lo: m[3], hi: m[4], desc: m[5], paso: m[6],
+             kg: m[7], rp: m[8], ultimas: m[9] || [], subir: m[10], extra: false };
+  }
+
+  // ---------- inicio ----------
+  function pintarInicio() {
+    $("ini-semana").textContent = "Semana " + plan.w + " del plan";
+    $("ini-nombre").textContent = plan.n;
+    $("ini-reserva").textContent = "Deje " + plan.r + " reps en reserva";
+    var ul = $("ini-lista");
+    ul.textContent = "";
+    plan.e.forEach(function (m) {
+      var li = el("li");
+      li.appendChild(el("span", "", m[1]));
+      var der = m[2] + " × " + rango(m[3], m[4]);
+      if (m[7] != null && m[7] > 0) der += " · " + kg(m[7]) + " kg";
+      li.appendChild(el("span", m[10] ? "sube" : "tenue", (m[10] ? "↑ " : "") + der));
+      ul.appendChild(li);
+    });
+    mostrar("p-inicio");
+  }
+
+  function comenzar() {
+    st = { id: idNuevo(), s: plan.s, a: Date.now(), cur: 0,
+           ej: plan.e.map(function (m) { return { i: m[0], se: [], sk: 0, kg: m[7] || 0, rp: m[8] || m[3] || 10 }; }) };
+    almacen.poner(CLAVE_PLAN, planCrudo);
+    guardar();
+    vibrar("medium");
+    empezarEntreno();
+  }
+
+  function empezarEntreno() {
+    if (enTelegram) {
+      try { tg.enableClosingConfirmation(); } catch (e) {}
+      try { if (tg.isVersionAtLeast("7.7")) tg.disableVerticalSwipes(); } catch (e) {}
+    }
+    $("ent-sesion").textContent = plan.n;
+    mostrar("p-entreno");
+    pintarEjercicio();
+  }
+
+  // ---------- entrenamiento ----------
+  function actual() { return st.ej[st.cur]; }
+
+  function pintarChips() {
+    var c = $("ent-chips");
+    c.textContent = "";
+    st.ej.forEach(function (ej, i) {
+      var inf = info(ej);
+      var b = el("button", "chip sec", inf.nombre.split(" ").slice(0, 3).join(" ")
+                 + (ej.se.length ? " · " + ej.se.length : ""));
+      if (i === st.cur) b.classList.add("actual");
+      else if (ej.sk && !ej.se.length) b.classList.add("saltado");
+      else if (inf.series && ej.se.length >= inf.series) b.classList.add("listo");
+      b.setAttribute("data-ir", i);
+      c.appendChild(b);
+    });
+    var act = c.children[st.cur];
+    if (act && act.scrollIntoView) act.scrollIntoView({ block: "nearest", inline: "center" });
+  }
+
+  function pintarEjercicio() {
+    var ej = actual(), inf = info(ej);
+    editando = -1;
+    $("ej-pos").textContent = "Ejercicio " + (st.cur + 1) + " de " + st.ej.length
+                              + (inf.extra ? " · fuera del plan" : "");
+    $("ej-nombre").textContent = inf.nombre;
+    $("ej-plan").textContent = (inf.series ? inf.series + " × " + rango(inf.lo, inf.hi) + " reps · " : "")
+                               + "descanso " + mmss(inf.desc);
+    $("ej-ultima").textContent = inf.ultimas.length
+      ? "Última vez: " + inf.ultimas.map(function (s) { return kg(s[0]) + "×" + s[1]; }).join(" · ")
+      : (inf.extra ? "" : "Primera vez con este ejercicio");
+    var meta = $("ej-meta");
+    if (inf.extra || inf.kg == null) {
+      meta.textContent = "";
+    } else if (inf.subir) {
+      meta.textContent = "↑ Toca subir: " + kg(inf.kg) + " kg × " + inf.rp;
+      meta.className = "meta sube";
+    } else {
+      meta.textContent = "Meta: " + kg(inf.kg) + " kg × " + inf.rp + (inf.lo == null ? "+" : "");
+      meta.className = "meta";
+    }
+    pintarSeries();
+    pintarChips();
+    $("in-kg").value = kg(ej.kg);
+    $("in-rp").value = ej.rp;
+    $("b-anterior").disabled = st.cur === 0;
+    $("b-siguiente").disabled = st.cur === st.ej.length - 1;
+    $("b-saltar").textContent = ej.sk ? "Saltado" : "Saltar ejercicio";
+    $("b-saltar").disabled = !!ej.sk;
+  }
+
+  function pintarSeries() {
+    var ej = actual(), inf = info(ej), ul = $("ej-series");
+    ul.textContent = "";
+    ej.se.forEach(function (s, i) {
+      var li = el("li");
+      if (i === editando) li.classList.add("editando");
+      li.appendChild(el("span", "n", String(i + 1)));
+      li.appendChild(el("span", "v", kg(s[0]) + " kg × " + s[1]));
+      li.appendChild(el("span", "tenue chico", i === editando ? "corrigiendo" : "✎"));
+      li.setAttribute("data-serie", i);
+      ul.appendChild(li);
+    });
+    var b = $("b-marcar");
+    if (editando >= 0) {
+      b.textContent = "Guardar serie " + (editando + 1);
+    } else {
+      var n = ej.se.length + 1;
+      b.textContent = inf.series && n > inf.series ? "Marcar serie extra (" + n + ")"
+                                                   : "Marcar serie " + n + (inf.series ? " de " + inf.series : "");
+    }
+    $("edicion").classList.toggle("oculto", editando < 0);
+  }
+
+  function leerEntradas() {
+    var k = parseFloat(String($("in-kg").value).replace(",", "."));
+    var r = parseInt($("in-rp").value, 10);
+    if (!(k >= 0) || k > 500) k = 0;
+    if (!(r >= 0)) r = 0;
+    return [Math.round(k * 100) / 100, Math.min(r, 100)];
+  }
+
+  function pasoEntrada(campo, dir) {
+    var ej = actual(), inf = info(ej), v = leerEntradas();
+    if (campo === "kg") v[0] = Math.max(0, Math.round((v[0] + dir * inf.paso) * 100) / 100);
+    else v[1] = Math.max(0, v[1] + dir);
+    $("in-kg").value = kg(v[0]);
+    $("in-rp").value = v[1];
+    if (editando < 0) { ej.kg = v[0]; ej.rp = v[1]; guardar(); }
+    vibrar("light");
+  }
+
+  function marcar() {
+    var ej = actual(), inf = info(ej), v = leerEntradas();
+    if (v[1] < 1) { alerta("Ponga cuántas reps hizo."); return; }
+    if (editando >= 0) {
+      ej.se[editando] = v;
+      editando = -1;
+      guardar();
+      vibrar("medium");
+      pintarEjercicio();
+      return;
+    }
+    ej.se.push(v);
+    ej.sk = 0;
+    ej.kg = v[0]; ej.rp = v[1];
+    guardar();
+    vibrar("medium");
+    pintarEjercicio();
+    var ultimo = inf.series && ej.se.length >= inf.series;
+    iniciarDescanso(inf.desc, ultimo && st.cur < st.ej.length - 1
+                    ? "Siguiente: " + info(st.ej[st.cur + 1]).nombre : "Descanso");
+  }
+
+  function editarSerie(i) {
+    var ej = actual();
+    if (editando === i) { cancelarEdicion(); return; }
+    editando = i;
+    $("in-kg").value = kg(ej.se[i][0]);
+    $("in-rp").value = ej.se[i][1];
+    pintarSeries();
+    vibrar("light");
+  }
+  function cancelarEdicion() {
+    editando = -1;
+    pintarEjercicio();
+  }
+  function borrarSerie() {
+    var ej = actual(), i = editando;
+    confirmar("¿Borrar la serie " + (i + 1) + "?", function () {
+      ej.se.splice(i, 1);
+      editando = -1;
+      guardar();
+      pintarEjercicio();
+    });
+  }
+
+  function ir(i) {
+    if (i < 0 || i >= st.ej.length) return;
+    st.cur = i;
+    guardar();
+    pintarEjercicio();
+    vibrar("light");
+  }
+
+  function saltar() {
+    var ej = actual();
+    ej.sk = 1;
+    guardar();
+    var sig = -1;
+    for (var i = st.cur + 1; i < st.ej.length; i++) if (!st.ej[i].sk && !st.ej[i].se.length) { sig = i; break; }
+    if (sig < 0 && st.cur < st.ej.length - 1) sig = st.cur + 1;
+    if (sig >= 0) ir(sig); else pintarEjercicio();
+  }
+
+  // ---------- agregar un ejercicio ----------
+  function elegido(grupo) {
+    var s = $(grupo).querySelector(".sel");
+    return s ? parseFloat(s.getAttribute("data-v")) : null;
+  }
+  function abrirAgregar() {
+    $("ag-nombre").value = "";
+    $("m-agregar").classList.remove("oculto");
+    setTimeout(function () { $("ag-nombre").focus(); }, 50);
+  }
+  function agregar() {
+    var nombre = $("ag-nombre").value.replace(/\s+/g, " ").trim().slice(0, 40);
+    if (!nombre) { alerta("Escriba el nombre del ejercicio."); return; }
+    var nuevo = { i: "+" + nombre, x: 1, n: nombre, d: elegido("ag-descanso") || 90,
+                  p: elegido("ag-paso") || 2.5, se: [], sk: 0, kg: 0, rp: 10 };
+    st.ej.splice(st.cur + 1, 0, nuevo);
+    $("m-agregar").classList.add("oculto");
+    ir(st.cur + 1);
+  }
+
+  // ---------- descanso ----------
+  function iniciarDescanso(seg, titulo) {
+    descanso.hasta = Date.now() + seg * 1000;
+    descanso.avisado = false;
+    $("des-titulo").textContent = titulo;
+    $("descanso").classList.remove("oculto", "fin");
+    document.body.classList.add("con-descanso");
+    tic();
+  }
+  function cerrarDescanso() {
+    descanso.hasta = 0;
+    $("descanso").classList.add("oculto");
+    document.body.classList.remove("con-descanso");
+  }
+
+  function tic() {
+    if (st && !$("p-entreno").classList.contains("oculto")) {
+      $("ent-reloj").textContent = mmss((Date.now() - st.a) / 1000);
+    }
+    if (descanso.hasta) {
+      var queda = (descanso.hasta - Date.now()) / 1000;
+      if (queda > 0) {
+        $("des-tiempo").textContent = mmss(Math.ceil(queda));
+      } else {
+        $("des-tiempo").textContent = "¡A la serie!";
+        $("descanso").classList.add("fin");
+        if (!descanso.avisado) { descanso.avisado = true; vibrar("fin"); }
+        if (queda < -20) cerrarDescanso();
+      }
+    }
+  }
+
+  // ---------- terminar ----------
+  function cuentas() {
+    var series = 0, vol = 0, hechos = 0, planeados = 0, faltan = [];
+    st.ej.forEach(function (ej) {
+      var inf = info(ej);
+      series += ej.se.length;
+      ej.se.forEach(function (s) { vol += s[0] * s[1]; });
+      if (!inf.extra) {
+        planeados++;
+        if (ej.se.length) hechos++; else faltan.push(inf.nombre);
+      }
+    });
+    return { series: series, vol: vol, hechos: hechos, planeados: planeados, faltan: faltan };
+  }
+
+  function pantallaFin() {
+    var c = cuentas();
+    cerrarDescanso();
+    $("fin-sesion").textContent = plan.n;
+    $("fin-dur").textContent = mmss((Date.now() - st.a) / 1000);
+    $("fin-series").textContent = c.series;
+    $("fin-ej").textContent = c.hechos + " de " + c.planeados;
+    $("fin-vol").textContent = Math.round(c.vol).toLocaleString("es-CL") + " kg";
+    $("fin-faltan").textContent = c.faltan.length ? "Sin series: " + c.faltan.join(", ") + "." : "";
+    $("b-enviar").disabled = c.series === 0;
+    mostrar("p-fin");
+  }
+
+  function armarEnvio(corto) {
+    var e = [], k = [];
+    st.ej.forEach(function (ej) {
+      if (ej.se.length) {
+        var clave = ej.x ? "+" + (corto ? ej.n.slice(0, 15) : ej.n) : ej.i;
+        e.push([clave, ej.se.map(function (s) { return [s[0], s[1]]; })]);
+      } else if (!ej.x) {
+        k.push(ej.i);
+      }
+    });
+    var d = { v: 1, i: st.id, s: st.s, a: Math.round(st.a / 1000), b: Math.round(Date.now() / 1000), e: e };
+    if (!corto) d.k = k;
+    return JSON.stringify(d);
+  }
+
+  function enviar() {
+    var datos = armarEnvio(false);
+    var bytes = new TextEncoder().encode(datos).length;
+    if (bytes > LIMITE_BYTES) {
+      datos = armarEnvio(true);
+      bytes = new TextEncoder().encode(datos).length;
+    }
+    if (bytes > LIMITE_BYTES) {
+      alerta("El registro es demasiado largo para Telegram (" + bytes + " bytes). Borre alguna serie extra.");
+      return;
+    }
+    if (!enTelegram) {                // demo en el navegador: se muestra lo que se mandaria
+      $("fin-demo").textContent = datos + "\n(" + bytes + " bytes)";
+      $("fin-demo").classList.remove("oculto");
+      almacen.borrar([CLAVE_ESTADO, CLAVE_PLAN]);
+      return;
+    }
+    vibrar("fin");
+    try { tg.disableClosingConfirmation(); } catch (e) {}
+    // se borra el progreso y recien ahi se manda: sendData cierra la app
+    almacen.borrar([CLAVE_ESTADO, CLAVE_PLAN], function () { tg.sendData(datos); });
+  }
+
+  function descartar() {
+    confirmar("¿Descartar este entrenamiento? No se manda nada a Jarvis.", function () {
+      almacen.borrar([CLAVE_ESTADO, CLAVE_PLAN], function () {
+        st = null;
+        try { tg.disableClosingConfirmation(); } catch (e) {}
+        if (enTelegram) tg.close(); else pintarInicio();
+      });
+    });
+  }
+
+  // ---------- eventos (delegacion) ----------
+  document.addEventListener("click", function (ev) {
+    var t = ev.target.closest("button, li[data-serie]");
+    if (!t) return;
+    if (t.hasAttribute("data-paso")) { pasoEntrada(t.getAttribute("data-paso"), +t.getAttribute("data-dir")); return; }
+    if (t.hasAttribute("data-ir")) { ir(+t.getAttribute("data-ir")); return; }
+    if (t.hasAttribute("data-serie")) { editarSerie(+t.getAttribute("data-serie")); return; }
+    if (t.parentNode && t.parentNode.classList.contains("opciones")) {
+      Array.prototype.forEach.call(t.parentNode.children, function (b) { b.classList.toggle("sel", b === t); });
+      return;
+    }
+    switch (t.id) {
+      case "b-comenzar": comenzar(); break;
+      case "b-marcar": marcar(); break;
+      case "b-borrar-serie": borrarSerie(); break;
+      case "b-cancelar-edicion": cancelarEdicion(); break;
+      case "b-anterior": ir(st.cur - 1); break;
+      case "b-siguiente": ir(st.cur + 1); break;
+      case "b-saltar": saltar(); break;
+      case "b-agregar": abrirAgregar(); break;
+      case "b-ag-cancelar": $("m-agregar").classList.add("oculto"); break;
+      case "b-ag-ok": agregar(); break;
+      case "b-terminar": pantallaFin(); break;
+      case "b-volver": mostrar("p-entreno"); pintarEjercicio(); break;
+      case "b-enviar": enviar(); break;
+      case "b-descartar": descartar(); break;
+      case "b-des-mas": descanso.hasta = Math.max(descanso.hasta, Date.now()) + 15000;
+                        descanso.avisado = false; $("descanso").classList.remove("fin"); tic(); break;
+      case "b-des-fin": cerrarDescanso(); break;
+    }
+  });
+  // lo escrito a mano en kilos o reps tambien se guarda
+  ["in-kg", "in-rp"].forEach(function (id) {
+    $(id).addEventListener("change", function () {
+      if (!st || editando >= 0) return;
+      var v = leerEntradas(), ej = actual();
+      ej.kg = v[0]; ej.rp = v[1];
+      $("in-kg").value = kg(v[0]);
+      guardar();
+    });
+  });
+
+  // ---------- tema: oscuro siempre, con los colores de Telegram ----------
+  function tema() {
+    if (!enTelegram) return;
+    var p = tg.themeParams || {}, r = document.documentElement.style;
+    if (tg.colorScheme === "dark") {
+      if (p.bg_color) r.setProperty("--fondo", p.bg_color);
+      if (p.secondary_bg_color) r.setProperty("--tarjeta", p.secondary_bg_color);
+      if (p.text_color) r.setProperty("--texto", p.text_color);
+      if (p.hint_color) r.setProperty("--tenue", p.hint_color);
+    }
+    if (p.button_color) r.setProperty("--acento", p.button_color);
+    if (p.button_text_color) r.setProperty("--acento-texto", p.button_text_color);
+    var fondo = getComputedStyle(document.documentElement).getPropertyValue("--fondo").trim();
+    try { tg.setHeaderColor(fondo); tg.setBackgroundColor(fondo); } catch (e) {}
+  }
+
+  // ---------- arranque ----------
+  function aviso(titulo, texto) {
+    $("aviso-titulo").textContent = titulo;
+    if (texto) $("aviso-texto").textContent = texto;
+    mostrar("p-aviso");
+  }
+
+  function arrancar() {
+    if (!enTelegram && !demo) { aviso("Ábrame desde Telegram"); return; }
+    if (enTelegram) { tg.ready(); tg.expand(); tema(); }
+    planCrudo = params.get("d") || "";
+    almacen.leer([CLAVE_ESTADO, CLAVE_PLAN], function (vals) {
+      // un entrenamiento a medias (la app se cerro): se retoma con su propio plan
+      try {
+        var guardado = vals[CLAVE_ESTADO] ? JSON.parse(vals[CLAVE_ESTADO]) : null;
+        if (guardado && vals[CLAVE_PLAN] && Date.now() - guardado.a < VIGENCIA_MS) {
+          plan = leerPlan(vals[CLAVE_PLAN]);
+          planCrudo = vals[CLAVE_PLAN];
+          st = guardado;
+          if (st.cur >= st.ej.length) st.cur = 0;
+          empezarEntreno();
+          return;
+        }
+        if (guardado) almacen.borrar([CLAVE_ESTADO, CLAVE_PLAN]);
+      } catch (e) {
+        almacen.borrar([CLAVE_ESTADO, CLAVE_PLAN]);
+      }
+      if (!planCrudo) {
+        aviso("Falta la sesión", "Ábrame con el botón que manda Jarvis al escribirle \"/gym\".");
+        return;
+      }
+      try { plan = leerPlan(planCrudo); } catch (e) {
+        aviso("No pude leer la sesión", "Pídale el botón de nuevo a Jarvis con \"/gym\".");
+        return;
+      }
+      pintarInicio();
+    });
+  }
+
+  setInterval(tic, 250);
+  arrancar();
+})();
+</script>
+</body>
+</html>
